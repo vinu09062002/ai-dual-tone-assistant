@@ -1,31 +1,35 @@
-# main.py
+# main.py - FINAL PRODUCTION VERSION
 from fastapi import FastAPI, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any
 from datetime import datetime
 import os
-import requests
-import json
 import uuid
+import openai # Assuming you are using the OpenAI API
+from openai import OpenAI # Use this for the official client
 
 # Project Modules
-from database import Prompt, get_db, create_db_and_tables # Ensure create_db_and_tables is imported
-import config # Import the settings module for LLM key
+from database import Prompt, get_db
+import config # Contains the OPENAI_API_KEY setting
 
-# --- 1. CONFIGURATION & SETUP ---
-
-# This function should only be run via the Render Start Command chain.
-# Leaving it commented out prevents accidental execution during normal imports.
-# create_db_and_tables() 
-
-# Initialize the FastAPI application
-app = FastAPI()
+# --- 1. CONFIGURATION & APP INITIALIZATION ---
 
 # Get LLM API Key securely from the config module
 OPENAI_API_KEY = config.OPENAI_API_KEY
-# Define the client using the API key (assuming standard OpenAI client structure for example)
-# Note: Since we are avoiding external libraries here, we'll implement a simple HTTP wrapper.
+
+# Initialize the OpenAI client globally
+# It will use the key read from the environment via the config module
+try:
+    if OPENAI_API_KEY and OPENAI_API_KEY != 'MOCK_KEY':
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    else:
+        openai_client = None
+except Exception as e:
+    print(f"Warning: Failed to initialize OpenAI client. Key might be invalid. Error: {e}")
+    openai_client = None
+
+app = FastAPI()
 
 # --- 2. Pydantic Models ---
 
@@ -38,7 +42,6 @@ class GenerateResponse(BaseModel):
     formal_response: str
 
 class HistoryItem(GenerateResponse):
-    # Pydantic model for history retrieval
     user_id: str
     query: str
     created_at: datetime
@@ -46,25 +49,36 @@ class HistoryItem(GenerateResponse):
     # Configuration to allow mapping from SQLAlchemy ORM objects
     model_config = {'from_attributes': True}
 
-# --- 3. AI GENERATION LOGIC (Actual Implementation) ---
+# --- 3. AI GENERATION LOGIC (Real Implementation) ---
 
-# Note: This is a placeholder for your actual LLM API wrapper. 
-# It demonstrates error handling for the external API call.
-def generate_llm_response(prompt: str) -> Dict[str, str]:
-    """
-    Placeholder function to call the LLM API using the key from config.py.
-    This structure ensures the key is available and ready for your actual implementation.
-    """
+def generate_llm_response(query: str) -> Dict[str, str]:
+    """Generates dual-tone responses using the LLM client and prompt engineering."""
     
-    if OPENAI_API_KEY == 'MOCK_KEY':
-        # Fallback for testing when a real key isn't set
+    if not openai_client:
+        # Fallback if the key failed initialization
         return {
-            "casual_response": f"Mock Casual: You asked about {prompt}. It's super fun!",
-            "formal_response": f"Mock Formal: A detailed review of {prompt} suggests careful consideration is warranted."
+            "casual_response": f"MOCK FAILURE: AI Client not initialized. Check OPENAI_API_KEY.",
+            "formal_response": f"MOCK FAILURE: AI Client not initialized. Check OPENAI_API_KEY."
         }
+    
+    # --- Prompt Engineering: Define the two styles ---
+    casual_prompt = (
+        f"You are a fun, friendly expert. Explain '{query}' in a creative, casual, "
+        "and easy-to-understand summary. Keep it brief and engaging."
+    )
+    formal_prompt = (
+        f"You are a strict, academic expert. Provide a formal, analytical, and structured "
+        f"explanation of '{query}'. Use high-level language and clear paragraphs."
+    )
 
-    # --- REPLACE THIS SECTION WITH YOUR ACTUAL LLM CLIENT CODE ---
-    # Example structure for using the API key:
     try:
-        # **NOTE: Your actual implementation goes here. **
-        # Example API call structure (you may use the 'openai' library instead
+        # 1. Generate Casual Response
+        casual_response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": casual_prompt}]
+        ).choices[0].message.content
+
+        # 2. Generate Formal Response
+        formal_response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role
