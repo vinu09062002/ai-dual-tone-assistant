@@ -64,7 +64,7 @@ if st.button("Generate Responses"):
 
             except requests.exceptions.RequestException as e:
                 st.error(f"An error occurred: {e}")
-                st.session_state['last_result'] = None
+                st.session_state['last_result'] = 'None'
                 
         # Re-run the app to update the history sidebar and display results
         st.rerun() 
