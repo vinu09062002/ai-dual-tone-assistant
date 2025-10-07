@@ -2,7 +2,7 @@ fastapi
 uvicorn[standard]
 pydantic
 sqlalchemy
-psycopg2-binary  # For PostgreSQL
-openai           # Or the library for your chosen LLM (e.g., transformers)
+psycopg2-binary  
+openai           
 streamlit
 python-dotenv
