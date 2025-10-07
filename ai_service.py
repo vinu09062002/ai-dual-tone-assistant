@@ -51,7 +51,7 @@ def generate_ai_responses(query: str):
         model="text-davinci-003",
         prompt=formal_prompt,
         max_tokens=350,
-        temperature=0.3 # Lower temperature for more factual/less creative
+        temperature=0.3 
     )
     formal_response = formal_completion.choices[0].text.strip()
 
