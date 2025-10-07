@@ -2,12 +2,13 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 from datetime import datetime
 import os
 import uuid
-import openai # Assuming you are using the OpenAI API
-from openai import OpenAI # Use this for the official client
+import openai
+from openai import OpenAI
+from openai import APIError # Import specific exception for better handling
 
 # Project Modules
 from database import Prompt, get_db
@@ -19,15 +20,13 @@ import config # Contains the OPENAI_API_KEY setting
 OPENAI_API_KEY = config.OPENAI_API_KEY
 
 # Initialize the OpenAI client globally
-# It will use the key read from the environment via the config module
 try:
+    openai_client = None
     if OPENAI_API_KEY and OPENAI_API_KEY != 'MOCK_KEY':
         openai_client = OpenAI(api_key=OPENAI_API_KEY)
-    else:
-        openai_client = None
 except Exception as e:
+    # This warning will appear in Render logs during startup
     print(f"Warning: Failed to initialize OpenAI client. Key might be invalid. Error: {e}")
-    openai_client = None
 
 app = FastAPI()
 
@@ -52,23 +51,29 @@ class HistoryItem(GenerateResponse):
 # --- 3. AI GENERATION LOGIC (Real Implementation) ---
 
 def generate_llm_response(query: str) -> Dict[str, str]:
-    """Generates dual-tone responses using the LLM client and prompt engineering."""
+    """Generates dual-tone responses using the LLM client and optimized prompt engineering."""
     
     if not openai_client:
         # Fallback if the key failed initialization
-        return {
-            "casual_response": f"MOCK FAILURE: AI Client not initialized. Check OPENAI_API_KEY.",
-            "formal_response": f"MOCK FAILURE: AI Client not initialized. Check OPENAI_API_KEY."
-        }
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI Client not initialized. OPENAI_API_KEY is missing or invalid."
+        )
     
-    # --- Prompt Engineering: Define the two styles ---
+    # --- Prompt Engineering: Define the two distinct, optimized styles ---
+    
+    # Casual/Creative Prompt: Uses a persona, enthusiastic tone, and strict constraints.
     casual_prompt = (
-        f"You are a fun, friendly expert. Explain '{query}' in a creative, casual, "
-        "and easy-to-understand summary. Keep it brief and engaging."
+        f"**ROLE:** You are a seasoned tech blogger and social media personality. **TONE:** Enthusiastic, engaging, and extremely easy to understand. Use analogies and modern language. "
+        f"**TASK:** Explain the concept '{query}' in a fun, one-paragraph summary. "
+        f"**FORMAT CONSTRAINT:** Limit the response to 4 sentences and include exactly one relevant emoji at the end."
     )
+
+    # Formal/Analytical Prompt: Uses an academic persona and demands structured, formal output.
     formal_prompt = (
-        f"You are a strict, academic expert. Provide a formal, analytical, and structured "
-        f"explanation of '{query}'. Use high-level language and clear paragraphs."
+        f"**ROLE:** You are a senior university lecturer in the field related to the topic. **TONE:** Objective, authoritative, and analytical. Use professional terminology. "
+        f"**TASK:** Provide a concise, academic explanation of '{query}'. "
+        f"**FORMAT CONSTRAINT:** Structure the response into three distinct, short sections: 1. Definition and Context, 2. Key Mechanisms/Components, and 3. Significance/Implications."
     )
 
     try:
@@ -81,4 +86,77 @@ def generate_llm_response(query: str) -> Dict[str, str]:
         # 2. Generate Formal Response
         formal_response = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{"role
+            messages=[{"role": "user", "content": formal_prompt}]
+        ).choices[0].message.content
+        
+        return {
+            "casual_response": casual_response,
+            "formal_response": formal_response
+        }
+
+    except openai.APIError as e:
+        # Catch specific OpenAI errors (Authentication, Rate Limits, etc.)
+        print(f"OpenAI API Error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"External AI Service Error: {e.code} ({e.type}). Check key and rate limits."
+        )
+    except Exception as e:
+        # Catch any other runtime error during the call (like network timeout)
+        print(f"LLM API Call Failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="LLM Generation Failed due to unexpected error."
+        )
+
+# --- 4. API Endpoints ---
+
+@app.post("/generate", response_model=GenerateResponse)
+def generate_content(request: GenerateRequest, db: Session = Depends(get_db)):
+    """Handles content generation and saves the result to the database."""
+    
+    # 1. Generate AI responses (will raise 500 HTTPException if it fails)
+    ai_responses = generate_llm_response(request.query)
+
+    # 2. Save interaction to Postgres
+    try:
+        db_prompt = Prompt(
+            user_id=request.user_id,
+            query=request.query,
+            casual_response=ai_responses["casual_response"],
+            formal_response=ai_responses["formal_response"]
+        )
+        db.add(db_prompt)
+        db.commit()
+        db.refresh(db_prompt)
+    except Exception as e:
+        db.rollback()
+        # Catch database transactional errors
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database Save Failed: {e}"
+        )
+
+    # 3. Return responses
+    return GenerateResponse(**ai_responses)
+
+
+@app.get("/history", response_model=List[HistoryItem])
+def get_history(user_id: str, db: Session = Depends(get_db)):
+    """Retrieves all past interactions for the given user in reverse chronological order."""
+    
+    try:
+        history = (
+            db.query(Prompt)
+            .filter(Prompt.user_id == user_id)
+            .order_by(Prompt.created_at.desc()) 
+            .all()
+        )
+    except Exception as e:
+        # Catch database operational errors (like connection drops or missing tables)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database Query Failed: {e}"
+        )
+        
+    return history
