@@ -1,18 +1,17 @@
 # database.py
 from sqlalchemy import create_engine, Column, String, Text, DateTime
+# Import the UUID type and make sure to use it for the ID column
+from sqlalchemy.dialects.postgresql import UUID 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import uuid
 import os
-# from dotenv import load_dotenv # Only needed for local testing, commented out for clean cloud deploy
-# from urllib.parse import quote_plus # Not needed if using the full DATABASE_URL secret
 
 # --- CRITICAL FIX: Use the single, complete DATABASE_URL environment variable ---
 
 # 1. Ensure the required environment variable is present.
-# In a cloud environment (Render/Koyeb), variables are set before code runs.
-# We will use the full URL provided by Render directly.
+# In a cloud environment (Render), variables are set before code runs.
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # 2. VALIDATION CHECK: If the variable is missing, crash with a clear message.
@@ -20,20 +19,25 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise EnvironmentError(
         "FATAL ERROR: The DATABASE_URL environment variable is missing. "
-        "Please ensure it is set correctly in the Render/Koyeb Web Service settings."
+        "Please ensure it is set correctly in the Render Web Service settings."
     )
 
 # --- SQLAlchemy Setup ---
 # Engine creation is now guaranteed to receive a valid string.
-Engine = create_engine(DATABASE_URL)
+# Ensure asyncpg is installed if you are using an async framework like FastAPI.
+Engine = create_engine(DATABASE_URL) 
 Base = declarative_base()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=Engine)
 
 # --- Database Schema ---
 class Prompt(Base):
     __tablename__ = "prompts"
-    # Using String for UUIDs as required by the schema suggestion (page 1)
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    
+    # Updated ID to use UUID type (or String(36) if using sqlite/other dbs)
+    # Since you specified PostgreSQL, using UUID is idiomatic.
+    # The default creates a new UUID and converts it to a string for storage.
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    
     user_id = Column(String, index=True)
     query = Column(Text)
     casual_response = Column(Text)
