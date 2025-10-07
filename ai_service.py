@@ -21,31 +21,31 @@ professional terminology:
 "{query}"
 """
 
-# For mocking, in case API access is unavailable [cite: 21]
+
 def generate_ai_responses(query: str):
-    # Temporarily return mock responses, ignoring API call
+   
     print("DEBUG: Using mock AI responses to isolate error.")
     return {
         "casual_response": f"MOCK: Casual summary for {query}",
         "formal_response": f"MOCK: Formal analysis for {query}",
     }
 
-#def generate_ai_responses(query: str):
+
     if not openai.api_key:
-        # Fallback to mock if key isn't set
+        
         return mock_ai_responses(query) 
 
-    # --- 1. Casual/Creative Response ---
+ 
     casual_prompt = CASUAL_PROMPT_TEMPLATE.format(query=query)
     casual_completion = openai.Completion.create(
-        model="text-davinci-003", # or gpt-3.5-turbo via ChatCompletion
+        model="text-davinci-003", 
         prompt=casual_prompt,
         max_tokens=250,
         temperature=0.8 
     )
     casual_response = casual_completion.choices[0].text.strip()
 
-    # --- 2. Formal/Analytical Response ---
+
     formal_prompt = FORMAL_PROMPT_TEMPLATE.format(query=query)
     formal_completion = openai.Completion.create(
         model="text-davinci-003",
@@ -60,4 +60,3 @@ def generate_ai_responses(query: str):
         "formal_response": formal_response,
     }
 
-# Update the placeholder in main.py to import and use this function.
