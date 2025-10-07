@@ -1,20 +1,34 @@
-# main.py (initial part)
-from fastapi import FastAPI
-from datetime import datetime
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
+# main.py
+from fastapi import FastAPI, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from typing import List
-from database import Prompt, get_db, create_db_and_tables
-from ai_service import generate_ai_responses 
-import config
+from typing import List, Dict, Any, Union
+from datetime import datetime
+import os
+import requests
+import json
+import uuid
 
-# Run this function to set up the DB table
+# Project Modules
+from database import Prompt, get_db, create_db_and_tables # Ensure create_db_and_tables is imported
+import config # Import the settings module for LLM key
+
+# --- 1. CONFIGURATION & SETUP ---
+
+# This function should only be run via the Render Start Command chain.
+# Leaving it commented out prevents accidental execution during normal imports.
 # create_db_and_tables() 
 
+# Initialize the FastAPI application
 app = FastAPI()
 
-# --- Pydantic Models ---
+# Get LLM API Key securely from the config module
+OPENAI_API_KEY = config.OPENAI_API_KEY
+# Define the client using the API key (assuming standard OpenAI client structure for example)
+# Note: Since we are avoiding external libraries here, we'll implement a simple HTTP wrapper.
+
+# --- 2. Pydantic Models ---
+
 class GenerateRequest(BaseModel):
     user_id: str
     query: str
@@ -23,59 +37,34 @@ class GenerateResponse(BaseModel):
     casual_response: str
     formal_response: str
 
-# main.py (Pydantic Models)
-from datetime import datetime # <--- Ensure this is imported
-
-# ... (other models) ...
-
 class HistoryItem(GenerateResponse):
+    # Pydantic model for history retrieval
     user_id: str
     query: str
-    created_at: datetime # <--- Must be datetime object
-    # Add optional Pydantic config to handle ORM objects
-    class Config:
-        orm_mode = True 
-        # Note: For Pydantic v2, this should be: model_config = {'from_attributes': True}
+    created_at: datetime
+    
+    # Configuration to allow mapping from SQLAlchemy ORM objects
+    model_config = {'from_attributes': True}
 
-# Placeholder for AI generation function
-def generate_ai_responses(query: str):
-    # This will be replaced by the actual AI call in the next step
-    # Mock responses for API structure test
-    return {
-        "casual_response": f"Hey, {query} is a cool thing!",
-        "formal_response": f"Analysis of {query} suggests a formal explanation is required.",
-    }
+# --- 3. AI GENERATION LOGIC (Actual Implementation) ---
 
-@app.post("/generate", response_model=GenerateResponse)
-def generate_content(request: GenerateRequest, db: Session = Depends(get_db)):
-    # 1. Generate AI responses
-    ai_responses = generate_ai_responses(request.query)
+# Note: This is a placeholder for your actual LLM API wrapper. 
+# It demonstrates error handling for the external API call.
+def generate_llm_response(prompt: str) -> Dict[str, str]:
+    """
+    Placeholder function to call the LLM API using the key from config.py.
+    This structure ensures the key is available and ready for your actual implementation.
+    """
+    
+    if OPENAI_API_KEY == 'MOCK_KEY':
+        # Fallback for testing when a real key isn't set
+        return {
+            "casual_response": f"Mock Casual: You asked about {prompt}. It's super fun!",
+            "formal_response": f"Mock Formal: A detailed review of {prompt} suggests careful consideration is warranted."
+        }
 
-    # 2. Save interaction to Postgres
-    db_prompt = Prompt(
-        user_id=request.user_id,
-        query=request.query,
-        casual_response=ai_responses["casual_response"],
-        formal_response=ai_responses["formal_response"]
-    )
-    db.add(db_prompt)
-    db.commit()
-    db.refresh(db_prompt)
-
-    # 3. Return responses
-    return GenerateResponse(**ai_responses)
-
-# main.py (continued)
-
-@app.get("/history", response_model=List[HistoryItem])
-def get_history(user_id: str, db: Session = Depends(get_db)):
-    # Retrieve all past interactions for the user, reverse chronological order
-    history = (
-        db.query(Prompt)
-        .filter(Prompt.user_id == user_id)
-        .order_by(Prompt.created_at.desc()) # <--- Ordering field must exist
-        .all()
-    )
-    # The return should work if orm_mode=True is set on the Pydantic model
-    return history 
-
+    # --- REPLACE THIS SECTION WITH YOUR ACTUAL LLM CLIENT CODE ---
+    # Example structure for using the API key:
+    try:
+        # **NOTE: Your actual implementation goes here. **
+        # Example API call structure (you may use the 'openai' library instead
