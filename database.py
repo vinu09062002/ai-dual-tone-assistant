@@ -4,67 +4,35 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import uuid
-from dotenv import load_dotenv
 import os
-import config # Import the settings module
+# from dotenv import load_dotenv # Only needed for local testing, commented out for clean cloud deploy
+# from urllib.parse import quote_plus # Not needed if using the full DATABASE_URL secret
 
-# Construct the URL using the variables defined in config.py
-DATABASE_URL = (
-    f"postgresql://{config.POSTGRES_USER}:{config.POSTGRES_PASSWORD}@"
-    f"{config.POSTGRES_HOST}:{config.POSTGRES_PORT}/{config.POSTGRES_DB}"
-)
+# --- CRITICAL FIX: Use the single, complete DATABASE_URL environment variable ---
 
+# 1. Ensure the required environment variable is present.
+# In a cloud environment (Render/Koyeb), variables are set before code runs.
+# We will use the full URL provided by Render directly.
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# --- IMPORTANT ---
-# 1. Ensure this is called first.
-load_dotenv() 
-# --- IMPORTANT ---
+# 2. VALIDATION CHECK: If the variable is missing, crash with a clear message.
+# This prevents the silent 'None' value from crashing the SQLAlchemy parser.
+if not DATABASE_URL:
+    raise EnvironmentError(
+        "FATAL ERROR: The DATABASE_URL environment variable is missing. "
+        "Please ensure it is set correctly in the Render/Koyeb Web Service settings."
+    )
 
-POSTGRES_PORT = os.getenv('POSTGRES_PORT')
-
-from urllib.parse import quote_plus
-
-
-# Ensure load_dotenv() is present and executes
-load_dotenv() 
-
-# Safely retrieve all variables
-POSTGRES_USER = os.getenv('POSTGRES_USER', 'postgres')
-POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD', 'password')
-POSTGRES_HOST = os.getenv('POSTGRES_HOST', 'localhost')
-POSTGRES_PORT = os.getenv('POSTGRES_PORT', '5432') 
-POSTGRES_DB = os.getenv('POSTGRES_DB', 'ai_db')
-
-
-# 🚨 CRITICAL FIX: URL-encode the password to handle the '@' symbol.
-ENCODED_PASSWORD = quote_plus(POSTGRES_PASSWORD)
-
-# Construct the URL using the encoded password
-DATABASE_URL = (
-    f"postgresql://{POSTGRES_USER}:{ENCODED_PASSWORD}@"
-    f"{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
-)
-
-
- # Load environment variables
-
-DATABASE_URL = (
-    f"postgresql://{POSTGRES_USER}:{os.getenv('POSTGRES_PASSWORD')}@"
-    f"{os.getenv('POSTGRES_HOST')}:{POSTGRES_PORT}/{os.getenv('POSTGRES_DB')}"
-)
-
-# Database connection string
-DATABASE_URL = (
-    f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@"
-    f"{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')}/{os.getenv('POSTGRES_DB')}"
-)
-
+# --- SQLAlchemy Setup ---
+# Engine creation is now guaranteed to receive a valid string.
 Engine = create_engine(DATABASE_URL)
 Base = declarative_base()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=Engine)
 
+# --- Database Schema ---
 class Prompt(Base):
     __tablename__ = "prompts"
+    # Using String for UUIDs as required by the schema suggestion (page 1)
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, index=True)
     query = Column(Text)
@@ -72,6 +40,7 @@ class Prompt(Base):
     formal_response = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+# --- Database Utility Functions ---
 # Function to create tables (run this once)
 def create_db_and_tables():
     Base.metadata.create_all(bind=Engine)
@@ -83,5 +52,3 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
