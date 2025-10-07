@@ -1,51 +1,108 @@
-# database.py
+# database.py - Final Hardened Version
 from sqlalchemy import create_engine, Column, String, Text, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import uuid
 import os
-# from dotenv import load_dotenv # Only needed for local testing, commented out for clean cloud deploy
-# from urllib.parse import quote_plus # Not needed if using the full DATABASE_URL secret
+import sys
+import base64
+import urllib.parse
+from urllib.parse import urlparse
 
-# --- CRITICAL FIX: Use the single, complete DATABASE_URL environment variable ---
+# --- CORE LOGIC: Inject the default port if missing ---
 
-# 1. Ensure the required environment variable is present.
-# In a cloud environment (Render/Koyeb), variables are set before code runs.
-# We will use the full URL provided by Render directly.
-DATABASE_URL = os.getenv("DATABASE_URL")
+def format_database_url(raw_url: str) -> str:
+    """Ensures the URL contains the default port to prevent SQLAlchemy errors."""
+    
+    # 1. Check if the URL is missing the port part
+    if "@" in raw_url and raw_url.count(':') < 3: # Simple check for missing port segment
+        
+        # Parse the URL components
+        url_object = urlparse(raw_url)
+        
+        # If the port is genuinely missing, enforce the default PostgreSQL port (5432)
+        if not url_object.port:
+            
+            # Reconstruct the netloc (host and port) manually
+            new_netloc = f"{url_object.netloc.split('@')[0]}@{url_object.hostname}:5432"
+            
+            # Reconstruct the entire URL string
+            final_url = url_object._replace(netloc=new_netloc).geturl()
+            print(f"DEBUG: Injected default port 5432 into URL.")
+            return final_url
+    
+    return raw_url
 
-# 2. VALIDATION CHECK: If the variable is missing, crash with a clear message.
-# This prevents the silent 'None' value from crashing the SQLAlchemy parser.
-if not DATABASE_URL:
-    raise EnvironmentError(
-        "FATAL ERROR: The DATABASE_URL environment variable is missing. "
-        "Please ensure it is set correctly in the Render/Koyeb Web Service settings."
-    )
+# --- ENVIRONMENT VARIABLE SETUP ---
+# ... (rest of your database.py should use the same retrieval logic) ...
+
+def get_database_url() -> str:
+    """Retrieves the database URL, prioritizing the full environment secret."""
+    db_base64 = os.getenv("DB_URL_BASE64")
+    db_url = None
+    
+    if db_base64:
+        try:
+            # Decode the URL string (your fix for intermittent 'None' issue)
+            db_url = base64.b64decode(db_base64).decode('utf-8').strip()
+        except Exception:
+            pass
+            
+    # Fallback to the standard (and potentially problematic) DATABASE_URL
+    if not db_url:
+        db_url = os.getenv("DATABASE_URL")
+        
+    return db_url if db_url else "" # Return empty string if truly missing
+
+# --- EXECUTION ---
+RAW_DATABASE_URL = get_database_url()
+
+if not RAW_DATABASE_URL:
+    sys.exit("FATAL ERROR: DB connection secret is missing. Check Render settings.")
+
+# Inject the port here to solve the ValueError
+DATABASE_URL = format_database_url(RAW_DATABASE_URL) 
 
 # --- SQLAlchemy Setup ---
-# Engine creation is now guaranteed to receive a valid string.
-Engine = create_engine(DATABASE_URL)
+# (Rest of your SQLAlchemy setup remains the same, using the new DATABASE_URL)
+# ...
+Engine = create_engine(
+    DATABASE_URL, 
+    # Use the specific connect_args you defined previously:
+    connect_args={
+        "sslmode": "require"
+    }
+)
+# ... rest of the file ...
+
+# --- SQLAlchemy Setup ---
+Engine = create_engine(
+    DATABASE_URL, 
+    # Add connect_args to force SSL/TLS connection, which is often required by Render.
+    connect_args={
+        "sslmode": "require"
+    }
+)
 Base = declarative_base()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=Engine)
 
-# --- Database Schema ---
+# --- Database Schema (omitted for brevity, keep your existing schema) ---
+
+# --- Database Utility Functions (omitted for brevity, keep your existing functions) ---
+
 class Prompt(Base):
     __tablename__ = "prompts"
-    # Using String for UUIDs as required by the schema suggestion (page 1)
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, index=True)
     query = Column(Text)
     casual_response = Column(Text)
     formal_response = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# --- Database Utility Functions ---
-# Function to create tables (run this once)
 def create_db_and_tables():
     Base.metadata.create_all(bind=Engine)
 
-# Dependency to get a DB session
 def get_db():
     db = SessionLocal()
     try:
